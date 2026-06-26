@@ -4,10 +4,12 @@ import {
   emptyCustomer,
   emptyItem,
   type Supplier,
+  type Customer,
   type Invoice,
   type InvoiceItem,
   type Currency,
   type Lang,
+  type NamedRecord,
 } from '../domain/model';
 import { nextNumber, type Counter } from '../domain/numbering';
 import { formatMoney } from '../domain/money';
@@ -30,7 +32,15 @@ import {
   saveCounter,
   loadDraft,
   saveDraft,
+  loadSuppliers,
+  saveSuppliers,
+  loadCustomers,
+  saveCustomers,
+  loadPresets,
+  savePresets,
+  profileId,
 } from '../store/storage';
+import { buildBackup, applyBackup } from '../store/backup';
 
 interface State {
   supplier: Supplier;
@@ -39,6 +49,8 @@ interface State {
   activeTemplateId: string;
   templates: TemplateMeta[];
   tab: 'invoice' | 'supplier' | 'templates';
+  // Persisted profile-picker selections (survive form re-renders).
+  profileSel: { supplier: string; customer: string; preset: string };
 }
 
 function todayISO(): string {
@@ -94,6 +106,87 @@ function segmented(
   return box;
 }
 
+/**
+ * Reusable saved-profile picker: a <select> of named snapshots plus
+ * save-as / update / delete buttons. Generic over the stored entity.
+ */
+function renderProfileBar<T>(opts: {
+  load: () => NamedRecord<T>[];
+  save: (l: NamedRecord<T>[]) => void;
+  current: () => T;
+  apply: (data: T) => void;
+  nameOf: (data: T) => string;
+  // Selection id is persisted by the caller so it survives a full form re-render
+  // (apply() -> renderForm() rebuilds this bar from scratch).
+  selectedId: () => string;
+  onSelect: (id: string) => void;
+  placeholder?: string;
+}): HTMLElement {
+  let list = opts.load();
+  let selectedId = opts.selectedId();
+
+  const sel = h('select', { class: 'input profile-select' }) as HTMLSelectElement;
+  const updateBtn = h('button', { class: 'btn', type: 'button' }, ['Aktualizovat']) as HTMLButtonElement;
+  const delBtn = h('button', { class: 'btn btn-link danger', type: 'button' }, ['Smazat']) as HTMLButtonElement;
+
+  const setSelected = (id: string) => {
+    selectedId = list.some((r) => r.id === id) ? id : '';
+    opts.onSelect(selectedId);
+    sel.value = selectedId;
+    updateBtn.disabled = delBtn.disabled = !selectedId;
+  };
+
+  const refreshOptions = () => {
+    clear(sel);
+    sel.append(h('option', { value: '' }, [opts.placeholder ?? '— vyber profil —']));
+    for (const r of list) sel.append(h('option', { value: r.id }, [r.name]));
+    setSelected(selectedId);
+  };
+  refreshOptions();
+
+  sel.addEventListener('change', () => {
+    setSelected(sel.value);
+    const r = list.find((x) => x.id === selectedId);
+    if (r) opts.apply(structuredClone(r.data));
+  });
+
+  const saveAsBtn = h('button', {
+    class: 'btn',
+    type: 'button',
+    onClick: () => {
+      const name = prompt('Název profilu', opts.nameOf(opts.current()));
+      if (name == null) return;
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const rec: NamedRecord<T> = { id: profileId(), name: trimmed, data: structuredClone(opts.current()) };
+      list = [...list, rec];
+      opts.save(list);
+      refreshOptions();
+      setSelected(rec.id);
+    },
+  }, ['Uložit jako…']) as HTMLButtonElement;
+
+  updateBtn.addEventListener('click', () => {
+    if (!selectedId) return;
+    const r = list.find((x) => x.id === selectedId);
+    if (!r) return;
+    r.data = structuredClone(opts.current());
+    opts.save(list);
+  });
+
+  delBtn.addEventListener('click', () => {
+    if (!selectedId) return;
+    const r = list.find((x) => x.id === selectedId);
+    if (!r || !confirm(`Smazat profil „${r.name}"?`)) return;
+    list = list.filter((x) => x.id !== selectedId);
+    opts.save(list);
+    selectedId = '';
+    refreshOptions();
+  });
+
+  return h('div', { class: 'profile-bar' }, [sel, saveAsBtn, updateBtn, delBtn]);
+}
+
 export function mountApp(root: HTMLElement): void {
   const state: State = {
     supplier: loadSupplier() ?? emptySupplier(),
@@ -102,6 +195,7 @@ export function mountApp(root: HTMLElement): void {
     activeTemplateId: BUILTIN_ID,
     templates: [{ id: BUILTIN_ID, name: 'Vestavěná šablona', builtin: true }],
     tab: 'invoice',
+    profileSel: { supplier: '', customer: '', preset: '' },
   };
   if (!state.invoice.customer) state.invoice.customer = emptyCustomer();
   if (!state.invoice.items || state.invoice.items.length === 0) state.invoice.items = [emptyItem()];
@@ -292,6 +386,22 @@ export function mountApp(root: HTMLElement): void {
     return h('div', { class: 'form' }, [
       h('h2', {}, ['Dodavatel (uloží se a předvyplní)']),
       h('p', { class: 'muted small' }, ['Vyplňte jednou. Údaje se ukládají a předvyplní u každé nové faktury.']),
+      h('p', { class: 'muted small' }, ['Uložené profily dodavatele:']),
+      renderProfileBar<Supplier>({
+        load: loadSuppliers,
+        save: saveSuppliers,
+        current: () => state.supplier,
+        apply: (data) => {
+          state.supplier = data;
+          saveSupplier(state.supplier);
+          renderForm();
+          schedulePreview();
+        },
+        nameOf: (data) => data.name || 'Dodavatel',
+        selectedId: () => state.profileSel.supplier,
+        onSelect: (id) => (state.profileSel.supplier = id),
+        placeholder: '— vyber dodavatele —',
+      }),
       field('Jméno / název *', inp(() => s.name, (v) => (s.name = v), 'Jan Novák')),
       field('Adresa (víceřádková) *', addressTa),
       h('div', { class: 'row2' }, [
@@ -398,7 +508,46 @@ export function mountApp(root: HTMLElement): void {
         ]),
       ]),
 
+      h('p', { class: 'muted small' }, ['Uložené šablony faktur (s daty):']),
+      renderProfileBar<Invoice>({
+        load: loadPresets,
+        save: savePresets,
+        current: () => state.invoice,
+        apply: (data) => {
+          const t = todayISO();
+          data.issueDate = t;
+          data.dueDate = addDaysISO(t, 14);
+          const num = nextNumber(state.counter).number;
+          data.number = num;
+          data.variableSymbol = num;
+          if (!data.customer) data.customer = emptyCustomer();
+          if (!data.items || data.items.length === 0) data.items = [emptyItem()];
+          state.invoice = data;
+          saveDraft(state.invoice);
+          renderForm();
+          schedulePreview();
+        },
+        nameOf: (data) => (data.customer?.name ? `Faktura – ${data.customer.name}` : 'Faktura'),
+        selectedId: () => state.profileSel.preset,
+        onSelect: (id) => (state.profileSel.preset = id),
+        placeholder: '— vyber šablonu faktury —',
+      }),
+
       h('h2', {}, ['Odběratel']),
+      renderProfileBar<Customer>({
+        load: loadCustomers,
+        save: saveCustomers,
+        current: () => state.invoice.customer,
+        apply: (data) => {
+          state.invoice.customer = data;
+          renderForm();
+          schedulePreview();
+        },
+        nameOf: (data) => data.name || 'Odběratel',
+        selectedId: () => state.profileSel.customer,
+        onSelect: (id) => (state.profileSel.customer = id),
+        placeholder: '— vyber odběratele —',
+      }),
       field('Název *', bindInput(() => inv.customer.name, (v) => (inv.customer.name = v), { placeholder: 'Firma s.r.o.' })),
       field('Adresa *', bindTextarea(() => inv.customer.address, (v) => (inv.customer.address = v))),
       h('div', { class: 'row2' }, [
@@ -563,6 +712,68 @@ export function mountApp(root: HTMLElement): void {
           'Kontrakt: šablona musí definovat funkci invoice(lang, supplier, customer, meta, items, totalFormatted, note). Balíčky @preview nejsou podporované (offline).',
         ]),
       );
+
+      // ---- Záloha dat (full backup / restore across devices) ----
+      wrap.append(h('h3', {}, ['Záloha dat']));
+      wrap.append(
+        h('p', { class: 'muted small' }, [
+          'Exportuj všechna data (dodavatelé, odběratelé, šablony faktur i .typ šablony) do jednoho .json souboru a naimportuj je na jiném zařízení. Import přidává, nepřepisuje.',
+        ]),
+      );
+
+      const backupErr = h('div', { class: 'error' });
+      backupErr.style.display = 'none';
+      const backupInfo = h('div', { class: 'info' });
+      backupInfo.style.display = 'none';
+
+      wrap.append(
+        h('button', {
+          class: 'btn',
+          onClick: async () => {
+            backupErr.style.display = 'none';
+            try {
+              const data = await buildBackup();
+              const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `faktura-zaloha-${todayISO()}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch (e) {
+              backupErr.textContent = 'Export zálohy selhal: ' + (e as Error).message;
+              backupErr.style.display = 'block';
+            }
+          },
+        }, ['Exportovat zálohu (.json)']),
+      );
+
+      const backupFile = h('input', { class: 'input', type: 'file', accept: '.json,application/json' }) as HTMLInputElement;
+      backupFile.addEventListener('change', async () => {
+        const f = backupFile.files?.[0];
+        if (!f) return;
+        backupErr.style.display = 'none';
+        backupInfo.textContent = `Importuji „${f.name}"…`;
+        backupInfo.style.display = 'block';
+        try {
+          const data = JSON.parse(await f.text());
+          const r = await applyBackup(data);
+          // switchTab below rebuilds this form, so surface the summary via alert.
+          alert(`Záloha naimportována:\n+${r.suppliers} dodavatelů\n+${r.customers} odběratelů\n+${r.presets} šablon faktur\n+${r.templates} .typ šablon`);
+          switchTab('templates');
+          await refreshActiveSource();
+        } catch (err) {
+          backupInfo.style.display = 'none';
+          backupErr.textContent = 'Import zálohy selhal: ' + (err as Error).message;
+          backupErr.style.display = 'block';
+        } finally {
+          backupFile.value = '';
+        }
+      });
+      wrap.append(h('h3', {}, ['Importovat zálohu (.json)']));
+      wrap.append(backupFile);
+      wrap.append(backupInfo);
+      wrap.append(backupErr);
     })();
     return wrap;
   }

@@ -97,6 +97,32 @@ export async function deleteTemplate(id: string): Promise<void> {
   if (active === id) await setActiveId(BUILTIN_ID);
 }
 
+/** All stored (imported) templates — full records, for backup export. */
+export async function exportTemplates(): Promise<StoredTemplate[]> {
+  return listStored();
+}
+
+async function existingTemplateIds(): Promise<Set<string>> {
+  const ids = await tx<IDBValidKey[]>(STORE, 'readonly', (s) => s.getAllKeys());
+  return new Set(ids.map(String));
+}
+
+/**
+ * Insert templates whose id isn't already present. Returns count added.
+ * No re-validation — records come from our own export.
+ */
+export async function importTemplatesMerge(recs: StoredTemplate[]): Promise<number> {
+  const have = await existingTemplateIds();
+  let added = 0;
+  for (const r of recs) {
+    if (!r || typeof r.id !== 'string' || typeof r.source !== 'string' || have.has(r.id)) continue;
+    await tx(STORE, 'readwrite', (s) => s.put(r));
+    have.add(r.id);
+    added++;
+  }
+  return added;
+}
+
 /** Dummy data covering the full contract, used to validate imported templates. */
 function dummyInvoice(): Invoice {
   return {

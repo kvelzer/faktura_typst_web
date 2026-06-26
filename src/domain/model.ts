@@ -25,6 +25,13 @@ export interface Customer {
   dic?: string;
 }
 
+/** A named, saved snapshot of any entity (supplier / customer / invoice). */
+export interface NamedRecord<T> {
+  id: string; // `p_${Date.now()}_${rand}`
+  name: string; // user-facing label, defaults to data.name when present
+  data: T;
+}
+
 export interface InvoiceItem {
   description: string;
   quantity: number;
