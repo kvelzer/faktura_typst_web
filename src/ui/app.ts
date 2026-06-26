@@ -280,7 +280,7 @@ export function mountApp(root: HTMLElement): void {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `faktura-${state.invoice.number || 'bez-cisla'}.pdf`;
+      a.download = `${state.invoice.number || 'faktura'}.pdf`;
       document.body.append(a);
       a.click();
       a.remove();
