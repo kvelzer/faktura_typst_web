@@ -2,7 +2,7 @@
 
 export type Lang = 'cs' | 'en';
 export type Currency = 'CZK' | 'EUR';
-export type PaymentMethod = 'transfer' | 'cash';
+export type PaymentMethod = string;
 
 export interface Supplier {
   name: string;

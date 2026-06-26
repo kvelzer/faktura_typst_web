@@ -1,7 +1,7 @@
 import { $typst } from '@myriaddreamin/typst.ts';
 import { loadFonts } from '@myriaddreamin/typst.ts';
 
-import type { Invoice, Supplier, Lang, PaymentMethod } from '../domain/model';
+import type { Invoice, Supplier } from '../domain/model';
 import { formatMoney, formatQuantity, formatDate } from '../domain/money';
 import { typstString, typstStringOrNone } from './escape';
 
@@ -48,10 +48,6 @@ export function initTypst(): Promise<void> {
   return initialized;
 }
 
-const PAYMENT_LABELS: Record<Lang, Record<PaymentMethod, string>> = {
-  cs: { transfer: 'Platba převodem', cash: 'Hotově' },
-  en: { transfer: 'Bank transfer', cash: 'Cash' },
-};
 
 /** Compute line total for one item. */
 export function lineTotal(quantity: number, unitPrice: number): number {
@@ -99,16 +95,15 @@ export function buildMainContent(
     `number: ${typstString(invoice.number)}`,
     `issueDate: ${typstString(formatDate(invoice.issueDate, lang))}`,
     `dueDate: ${typstString(formatDate(invoice.dueDate, lang))}`,
-    `payment: ${typstString(PAYMENT_LABELS[lang][invoice.paymentMethod])}`,
+    `payment: ${typstString(invoice.paymentMethod)}`,
     `vs: ${typstString(invoice.variableSymbol ?? '')}`,
   ];
-  if (invoice.paymentMethod === 'transfer') {
-    if (currency === 'CZK' && supplier.bankAccount) {
-      metaFields.push(`account: ${typstString(supplier.bankAccount)}`);
-    }
-    if (supplier.iban) metaFields.push(`iban: ${typstString(supplier.iban)}`);
-    if (supplier.swift) metaFields.push(`swift: ${typstString(supplier.swift)}`);
+  if (currency === 'CZK' && supplier.bankAccount) {
+    metaFields.push(`account: ${typstString(supplier.bankAccount)}`);
   }
+  if (supplier.iban) metaFields.push(`iban: ${typstString(supplier.iban)}`);
+  if (supplier.swift) metaFields.push(`swift: ${typstString(supplier.swift)}`);
+
 
   const itemDicts = invoice.items.map((it) => {
     const fields = [

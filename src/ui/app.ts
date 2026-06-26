@@ -8,7 +8,6 @@ import {
   type InvoiceItem,
   type Currency,
   type Lang,
-  type PaymentMethod,
 } from '../domain/model';
 import { nextNumber, type Counter } from '../domain/numbering';
 import { formatMoney } from '../domain/money';
@@ -60,7 +59,7 @@ function freshInvoice(counter: Counter | null): Invoice {
     currency: 'CZK',
     issueDate: issue,
     dueDate: addDaysISO(issue, 14),
-    paymentMethod: 'transfer',
+    paymentMethod: 'Platba převodem',
     variableSymbol: num,
     customer: emptyCustomer(),
     items: [emptyItem()],
@@ -106,6 +105,11 @@ export function mountApp(root: HTMLElement): void {
   };
   if (!state.invoice.customer) state.invoice.customer = emptyCustomer();
   if (!state.invoice.items || state.invoice.items.length === 0) state.invoice.items = [emptyItem()];
+
+  // Always refresh dates to today on app open
+  const today = todayISO();
+  state.invoice.issueDate = today;
+  state.invoice.dueDate = addDaysISO(today, 14);
 
   const tabBtns = {
     invoice: h('button', { class: 'tab active', onClick: () => switchTab('invoice') }, ['Faktura']),
@@ -339,17 +343,11 @@ export function mountApp(root: HTMLElement): void {
         schedulePreview();
       },
     );
-    const payToggle = segmented(
-      [
-        { value: 'transfer', label: 'Převodem' },
-        { value: 'cash', label: 'Hotově' },
-      ],
-      inv.paymentMethod,
-      (v) => {
-        inv.paymentMethod = v as PaymentMethod;
-        schedulePreview();
-      },
-    );
+    const payInput = h('input', { class: 'input', type: 'text', value: inv.paymentMethod, placeholder: 'Převodem / Hotově / ...' }) as HTMLInputElement;
+    payInput.addEventListener('input', () => {
+      inv.paymentMethod = payInput.value;
+      schedulePreview();
+    });
 
     const itemsBox = h('div', { class: 'items' });
     const renderItems = () => {
@@ -417,7 +415,7 @@ export function mountApp(root: HTMLElement): void {
         field('Datum vystavení', bindInput(() => inv.issueDate, (v) => (inv.issueDate = v), { type: 'date' })),
         field('Datum splatnosti', bindInput(() => inv.dueDate, (v) => (inv.dueDate = v), { type: 'date' })),
       ]),
-      field('Forma úhrady', payToggle),
+      field('Forma úhrady', payInput),
 
       h('h2', {}, ['Položky']),
       itemsBox,
