@@ -6,6 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#111111" />
     <meta name="description" content="Fakturační PWA pro OSVČ neplátce DPH — generuje PDF přímo v prohlížeči." />
+    <!-- Apple PWA meta tags (iOS Safari) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Faktura" />
+    <link rel="apple-touch-icon" href="/pwa-192.png" />
+    <!-- Explicit manifest link for browsers that don't inject it from vite-plugin-pwa -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Faktura PWA</title>
   </head>
   <body>
