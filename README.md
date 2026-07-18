@@ -10,14 +10,21 @@ i na Androidu z jednoho kódu, jde nainstalovat přes „Přidat na plochu" a b�
 - **Neplátce DPH** — žádné DPH sloupce ani výpočty, povinná doložka
   „Dodavatel není plátcem DPH.", celková částka = prostý součet položek, **bez DUZP**.
 - **Dvojjazyčně** (`cs` / `en`) a **dvě měny** (`CZK` / `EUR`) přepínatelné per faktura.
-- **Profil dodavatele** se uloží a předvyplní u každé další faktury.
+- **Uložené profily** — více pojmenovaných profilů **dodavatele** i **odběratele**;
+  vybraný se předvyplní do faktury (ukládání, aktualizace, mazání přes picker).
+- **Presety faktur** — celá faktura (položky, poznámka, platba, měna, jazyk,
+  odběratel) se uloží pod názvem a znovu načte; načtení vygeneruje nové číslo a data.
+- **Záloha / obnova** — export všech profilů, presetů, aktivního dodavatele,
+  čítače, rozpracované faktury i uložených šablon do jednoho JSON souboru.
+  Import je **nedestruktivní** (merge podle id, existující se přeskočí; singletony
+  se doplní jen když chybí) — data se čistě přenesou na nové zařízení.
 - **Živý SVG náhled** vedle formuláře (debounce) + stažení **PDF**.
 - **Platební údaje volitelné** — prázdná pole se na faktuře vůbec nezobrazí.
   Pro EUR se použijí IBAN + SWIFT, pro CZK bankovní účet.
 - **Vlastní šablony** — import vlastního `.typ` souboru s validací proti
   datovému kontraktu; vestavěná šablona je vždy dostupný fallback.
-- **Perzistence** přes `localStorage` (profil, čítač čísel, rozpracovaná faktura)
-  a `IndexedDB` (uložené šablony).
+- **Perzistence** přes `localStorage` (dodavatel, čítač čísel, rozpracovaná faktura,
+  uložené profily a presety) a `IndexedDB` (uložené šablony).
 
 ## Architektura
 
@@ -32,8 +39,9 @@ escapované) → typst.ts zkompiluje na PDF (stažení) i SVG (náhled).
 ```
 src/
   main.ts                 bootstrap, registrace service workeru, warm-up Typstu
+  style.css               styly aplikace
   ui/
-    app.ts                formuláře (dodavatel, faktura, položky), náhled, šablony
+    app.ts                formuláře (dodavatel, faktura, položky), profily/presety, náhled, šablony
     dom.ts                drobné DOM helpery
   typst/
     template.typ          vestavěná šablona (importuje se přes ?raw)
@@ -45,7 +53,8 @@ src/
     money.ts              Intl formátování CZK/EUR × cs/en, datumy
     numbering.ts          auto číslo faktury RRRRNNN
   store/
-    storage.ts            localStorage: supplier, čítač, draft
+    storage.ts            localStorage: dodavatel, čítač, draft, profily, presety
+    backup.ts             sestavení/obnova celé zálohy (JSON export/import)
   assets/fonts/           bundlované TTF fonty (Liberation Sans, DejaVu Sans) — offline
 public/
   icon.svg, pwa-192.png, pwa-512.png
