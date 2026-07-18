@@ -1,4 +1,4 @@
-# Faktura PWA — fakturace pro OSVČ neplátce DPH
+# Faktura PWA — fakturace jednoduše
 
 Bezplatná fakturační **PWA**. PDF se generuje **přímo v prohlížeči** přes Typst
 zkompilovaný do WASM — žádný backend, žádný server na kompilaci. Funguje na webu
