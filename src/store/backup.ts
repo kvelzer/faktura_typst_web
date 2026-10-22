@@ -20,8 +20,10 @@ import {
   importTemplatesMerge,
   getActiveId,
   setActiveId,
+  validateTemplate,
   type StoredTemplate,
 } from '../typst/templateStore';
+import { validateBackup } from './backupValidation';
 
 const APP = 'faktura-pwa';
 const TYPE = 'backup';
@@ -81,7 +83,7 @@ export async function buildBackup(): Promise<BackupFile> {
 /** Merge incoming NamedRecords into the existing list, skipping ids already present. */
 function mergeById<T>(
   load: () => NamedRecord<T>[],
-  save: (l: NamedRecord<T>[]) => void,
+  save: (l: NamedRecord<T>[]) => boolean,
   incoming: NamedRecord<T>[] | undefined,
 ): number {
   if (!Array.isArray(incoming) || incoming.length === 0) return 0;
@@ -94,22 +96,24 @@ function mergeById<T>(
     have.add(r.id);
     added++;
   }
-  if (added) save(list);
+  if (added) requireSave(save(list));
   return added;
 }
 
 /** Validate and merge a backup bundle into the current device (non-destructive). */
 export async function applyBackup(raw: unknown): Promise<ImportSummary> {
-  const b = raw as Partial<BackupFile>;
-  if (!b || typeof b !== 'object' || b.app !== APP || b.type !== TYPE) {
-    throw new Error('Neplatný soubor zálohy (chybí hlavička faktura-pwa/backup).');
+  validateBackup(raw);
+  const b = raw;
+  for (const template of b.templates) {
+    const result = await validateTemplate(template.source);
+    if (!result.ok) throw new Error(`Neplatná šablona „${template.name}“: ${result.error}. Nic nebylo importováno.`);
   }
-  const ls = b.localStorage ?? {};
+  const ls = b.localStorage;
 
   // Singletons: only fill when the device has none — never clobber working state.
-  if (ls.supplier && loadSupplier() === null) saveSupplier(ls.supplier);
-  if (ls.counter && loadCounter() === null) saveCounter(ls.counter);
-  if (ls.draft && loadDraft() === null) saveDraft(ls.draft);
+  if (ls.supplier && loadSupplier() === null) requireSave(saveSupplier(ls.supplier));
+  if (ls.counter && loadCounter() === null) requireSave(saveCounter(ls.counter));
+  if (ls.draft && loadDraft() === null) requireSave(saveDraft(ls.draft));
 
   const summary: ImportSummary = {
     suppliers: mergeById(loadSuppliers, saveSuppliers, ls.suppliers),
@@ -125,4 +129,8 @@ export async function applyBackup(raw: unknown): Promise<ImportSummary> {
   }
 
   return summary;
+}
+
+function requireSave(saved: boolean): void {
+  if (!saved) throw new Error('Import nebyl dokončen: data se nepodařilo uložit. Uvolněte místo v úložišti prohlížeče a import zopakujte.');
 }

@@ -17,12 +17,19 @@ function readJSON<T>(key: string): T | null {
   }
 }
 
-function writeJSON(key: string, value: unknown): void {
+const failedKeys = new Set<string>();
+
+function writeJSON(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    failedKeys.delete(key);
   } catch {
-    /* storage full / unavailable — non-fatal */
+    failedKeys.add(key);
+    window.dispatchEvent(new CustomEvent('faktura:storage-status', { detail: true }));
+    return false;
   }
+  window.dispatchEvent(new CustomEvent('faktura:storage-status', { detail: failedKeys.size > 0 }));
+  return true;
 }
 
 export const loadSupplier = () => readJSON<Supplier>(K_SUPPLIER);

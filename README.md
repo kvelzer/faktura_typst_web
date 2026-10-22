@@ -20,7 +20,12 @@ i na Androidu z jednoho kódu, jde nainstalovat přes „Přidat na plochu" a b�
   se doplní jen když chybí) — data se čistě přenesou na nové zařízení.
 - **Živý SVG náhled** vedle formuláře (debounce) + stažení **PDF**.
 - **Platební údaje volitelné** — prázdná pole se na faktuře vůbec nezobrazí.
-  Pro EUR se použijí IBAN + SWIFT, pro CZK bankovní účet.
+  Pro EUR se použijí IBAN + SWIFT, pro CZK bankovní účet dodavatele.
+  Číslo účtu lze přímo ve faktuře změnit nebo vymazat; ukládá se i do presetů.
+- **Zadávání dat** — datum vystavení a splatnosti se zadává jako `DD/MM/YYYY`;
+  dnešní datum se určuje podle místního času a formát v PDF podle jazyka faktury.
+- **Množství a částky** — množství je celé číslo, ceny se zaokrouhlují na dvě
+  desetinná místa a součty se počítají v haléřích/centech.
 - **Vlastní šablony** — import vlastního `.typ` souboru s validací proti
   datovému kontraktu; vestavěná šablona je vždy dostupný fallback.
 - **Perzistence** přes `localStorage` (dodavatel, čítač čísel, rozpracovaná faktura,
@@ -95,6 +100,7 @@ npm install
 npm run dev        # vývojový server
 npm run build      # produkční build (tsc + vite + PWA)
 npm run preview    # náhled produkčního buildu (zde funguje service worker)
+npm test           # regresní testy dat, částek a validace záloh
 ```
 
 > Service worker se registruje jen v produkčním buildu — pro test offline použij

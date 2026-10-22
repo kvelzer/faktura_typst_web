@@ -2,7 +2,7 @@ import { $typst } from '@myriaddreamin/typst.ts';
 import { loadFonts } from '@myriaddreamin/typst.ts';
 
 import type { Invoice, Supplier } from '../domain/model';
-import { formatMoney, formatQuantity, formatDate } from '../domain/money';
+import { formatMoney, formatQuantity, formatDate, lineTotalCents } from '../domain/money';
 import { typstString, typstStringOrNone } from './escape';
 
 // Built-in template source, bundled at build time.
@@ -51,12 +51,14 @@ export function initTypst(): Promise<void> {
 
 /** Compute line total for one item. */
 export function lineTotal(quantity: number, unitPrice: number): number {
-  return quantity * unitPrice;
+  return lineTotalCents(quantity, unitPrice) / 100;
 }
 
 /** Compute the invoice grand total. */
 export function invoiceTotal(invoice: Invoice): number {
-  return invoice.items.reduce((sum, it) => sum + lineTotal(it.quantity, it.unitPrice), 0);
+  const cents = invoice.items.reduce((sum, it) => sum + lineTotalCents(it.quantity, it.unitPrice), 0);
+  if (!Number.isSafeInteger(cents)) throw new Error('Celková částka je mimo podporovaný rozsah.');
+  return cents / 100;
 }
 
 /**
@@ -90,7 +92,7 @@ export function buildMainContent(
     `dic: ${typstStringOrNone(customer.dic)}`,
   ];
 
-  // Payment details — bank account for CZK, IBAN/SWIFT for EUR; all optional.
+  // An invoice can override (or explicitly hide) the supplier's default account.
   const metaFields: string[] = [
     `number: ${typstString(invoice.number)}`,
     `issueDate: ${typstString(formatDate(invoice.issueDate, lang))}`,
@@ -98,8 +100,9 @@ export function buildMainContent(
     `payment: ${typstString(invoice.paymentMethod)}`,
     `vs: ${typstString(invoice.variableSymbol ?? '')}`,
   ];
-  if (currency === 'CZK' && supplier.bankAccount) {
-    metaFields.push(`account: ${typstString(supplier.bankAccount)}`);
+  const bankAccount = invoice.bankAccount ?? (currency === 'CZK' ? supplier.bankAccount : '');
+  if (bankAccount?.trim()) {
+    metaFields.push(`account: ${typstString(bankAccount.trim())}`);
   }
   if (supplier.iban) metaFields.push(`iban: ${typstString(supplier.iban)}`);
   if (supplier.swift) metaFields.push(`swift: ${typstString(supplier.swift)}`);
