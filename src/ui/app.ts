@@ -13,6 +13,7 @@ import {
 } from '../domain/model';
 import { nextNumber, type Counter } from '../domain/numbering';
 import { formatMoney } from '../domain/money';
+import { todayISO, parseInputDate } from '../domain/dates';
 import { buildMainContent, compilePdf, compileSvg, lineTotal } from '../typst/compile';
 import {
   listTemplates,
@@ -53,9 +54,6 @@ interface State {
   profileSel: { supplier: string; customer: string; preset: string };
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 function addDaysISO(iso: string, days: number): string {
   const d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
@@ -112,7 +110,7 @@ function segmented(
  */
 function renderProfileBar<T>(opts: {
   load: () => NamedRecord<T>[];
-  save: (l: NamedRecord<T>[]) => void;
+  save: (l: NamedRecord<T>[]) => boolean;
   current: () => T;
   apply: (data: T) => void;
   nameOf: (data: T) => string;
@@ -159,8 +157,9 @@ function renderProfileBar<T>(opts: {
       const trimmed = name.trim();
       if (!trimmed) return;
       const rec: NamedRecord<T> = { id: profileId(), name: trimmed, data: structuredClone(opts.current()) };
-      list = [...list, rec];
-      opts.save(list);
+      const next = [...list, rec];
+      if (!opts.save(next)) return;
+      list = next;
       refreshOptions();
       setSelected(rec.id);
     },
@@ -170,16 +169,17 @@ function renderProfileBar<T>(opts: {
     if (!selectedId) return;
     const r = list.find((x) => x.id === selectedId);
     if (!r) return;
-    r.data = structuredClone(opts.current());
-    opts.save(list);
+    const next = list.map((record) => record.id === selectedId ? { ...record, data: structuredClone(opts.current()) } : record);
+    if (opts.save(next)) list = next;
   });
 
   delBtn.addEventListener('click', () => {
     if (!selectedId) return;
     const r = list.find((x) => x.id === selectedId);
     if (!r || !confirm(`Smazat profil „${r.name}"?`)) return;
-    list = list.filter((x) => x.id !== selectedId);
-    opts.save(list);
+    const next = list.filter((x) => x.id !== selectedId);
+    if (!opts.save(next)) return;
+    list = next;
     selectedId = '';
     refreshOptions();
   });
@@ -188,6 +188,10 @@ function renderProfileBar<T>(opts: {
 }
 
 export function mountApp(root: HTMLElement): void {
+  const invalidDates = new Map<'issueDate' | 'dueDate', string>();
+  const invalidQuantities = new Map<InvoiceItem, string>();
+  const hasInvalidInputs = () => invalidDates.size > 0 || invalidQuantities.size > 0;
+  const resetInputDrafts = () => { invalidDates.clear(); invalidQuantities.clear(); };
   const state: State = {
     supplier: loadSupplier() ?? emptySupplier(),
     invoice: loadDraft() ?? freshInvoice(loadCounter()),
@@ -214,6 +218,12 @@ export function mountApp(root: HTMLElement): void {
   const previewBox = h('div', { class: 'preview-box', id: 'preview' }, ['Inicializuji…']);
   const previewStatus = h('div', { class: 'preview-status' });
   const dlBtn = h('button', { class: 'btn btn-primary', onClick: onDownloadPdf }, ['Stáhnout PDF']);
+  const storageError = h('div', { class: 'error storage-error', role: 'alert', hidden: true }, [
+    'Změny se nepodařilo uložit. Nezavírejte aplikaci; uvolněte místo v úložišti prohlížeče nebo povolte ukládání a změny znovu uložte.',
+  ]);
+  window.addEventListener('faktura:storage-status', (event) => {
+    storageError.hidden = !(event as CustomEvent<boolean>).detail;
+  });
 
   const header = h('header', { class: 'app-header' }, [
     h('div', { class: 'brand' }, [h('strong', {}, ['Faktura']), h('span', { class: 'muted' }, [' — neplátce DPH'])]),
@@ -229,6 +239,7 @@ export function mountApp(root: HTMLElement): void {
   root.append(
     h('div', { class: 'layout' }, [
       header,
+      storageError,
       h('main', { class: 'main-grid' }, [h('section', { class: 'form-section' }, [formPane]), previewPane]),
     ]),
   );
@@ -250,8 +261,8 @@ export function mountApp(root: HTMLElement): void {
   }
 
   async function renderPreview(): Promise<void> {
-    if (formPane.querySelector('input[data-invoice-date]:invalid')) {
-      previewStatus.textContent = 'Zkontrolujte datum ve formátu DD/MM/YYYY.';
+    if (hasInvalidInputs()) {
+      previewStatus.textContent = 'Zkontrolujte data (DD/MM/YYYY) a celá množství.';
       return;
     }
     previewStatus.textContent = 'Překresluji…';
@@ -259,6 +270,7 @@ export function mountApp(root: HTMLElement): void {
       if (!activeSourceCache) activeSourceCache = await getActiveSource();
       const main = buildMainContent(state.invoice, state.supplier, activeSourceCache);
       const svg = await compileSvg(main);
+      if (hasInvalidInputs()) return;
       previewBox.innerHTML = svg;
       previewStatus.textContent = '';
     } catch (e) {
@@ -273,7 +285,8 @@ export function mountApp(root: HTMLElement): void {
   }
 
   async function onDownloadPdf(): Promise<void> {
-    const invalidInput = formPane.querySelector<HTMLInputElement>('input[data-invoice-date]:invalid');
+    if (hasInvalidInputs()) switchTab('invoice');
+    const invalidInput = formPane.querySelector<HTMLInputElement>('input:invalid');
     if (invalidInput) {
       invalidInput.reportValidity();
       return;
@@ -339,30 +352,28 @@ export function mountApp(root: HTMLElement): void {
   }
 
   /** Keep ISO dates in storage/PDF data while showing a fixed day-first format. */
-  function bindDate(get: () => string, set: (v: string) => void): HTMLInputElement {
-    const [year, month, day] = get().split('-');
+  function bindDate(key: 'issueDate' | 'dueDate'): HTMLInputElement {
+    const [year, month, day] = state.invoice[key].split('-');
     const input = h('input', {
       class: 'input',
       type: 'text',
-      value: `${day}/${month}/${year}`,
+      value: invalidDates.get(key) ?? `${day}/${month}/${year}`,
       placeholder: 'DD/MM/YYYY',
       'data-invoice-date': true,
       required: true,
     });
-    input.addEventListener('input', () => {
-      const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(input.value);
-      let iso = '';
-      if (match) {
-        const [, d, m, y] = match;
-        const candidate = `${y}-${m}-${d}`;
-        const date = new Date(`${candidate}T00:00:00Z`);
-        if (Number(y) > 0 && !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === candidate) {
-          iso = candidate;
-        }
-      }
+    const validate = () => {
+      const iso = parseInputDate(input.value);
       input.setCustomValidity(iso ? '' : 'Zadejte platné datum ve formátu DD/MM/YYYY.');
       input.setAttribute('aria-invalid', String(!iso));
-      if (iso) set(iso);
+      if (iso) {
+        state.invoice[key] = iso;
+        invalidDates.delete(key);
+      } else invalidDates.set(key, input.value);
+    };
+    validate();
+    input.addEventListener('input', () => {
+      validate();
       schedulePreview();
     });
     input.addEventListener('blur', () => {
@@ -537,9 +548,10 @@ export function mountApp(root: HTMLElement): void {
           class: 'btn',
           onClick: () => {
             const committed = nextNumber(state.counter).counter;
+            if (!saveCounter(committed)) return;
             state.counter = committed;
-            saveCounter(committed);
             state.invoice = freshInvoice(committed);
+            resetInputDrafts();
             saveDraft(state.invoice);
             renderForm();
             schedulePreview();
@@ -568,6 +580,7 @@ export function mountApp(root: HTMLElement): void {
           if (!data.customer) data.customer = emptyCustomer();
           if (!data.items || data.items.length === 0) data.items = [emptyItem()];
           state.invoice = data;
+          resetInputDrafts();
           saveDraft(state.invoice);
           renderForm();
           schedulePreview();
@@ -606,8 +619,8 @@ export function mountApp(root: HTMLElement): void {
         field('Variabilní symbol', bindInput(() => inv.variableSymbol ?? '', (v) => (inv.variableSymbol = v))),
       ]),
       h('div', { class: 'row2' }, [
-        field('Datum vystavení', bindDate(() => inv.issueDate, (v) => (inv.issueDate = v)), 'DD/MM/YYYY'),
-        field('Datum splatnosti', bindDate(() => inv.dueDate, (v) => (inv.dueDate = v)), 'DD/MM/YYYY'),
+        field('Datum vystavení', bindDate('issueDate'), 'DD/MM/YYYY'),
+        field('Datum splatnosti', bindDate('dueDate'), 'DD/MM/YYYY'),
       ]),
       field('Způsob platby', payInput),
       field('Číslo účtu (nepovinné)', accountInput),
@@ -622,18 +635,31 @@ export function mountApp(root: HTMLElement): void {
 
   function renderItemRow(it: InvoiceItem, idx: number, rerender: () => void): HTMLElement {
     const inv = state.invoice;
-    const totalCell = h('span', { class: 'item-total' }, [formatMoney(lineTotal(it.quantity, it.unitPrice), inv.lang, inv.currency)]);
+    const totalCell = h('span', { class: 'item-total' });
     const updateTotal = () => {
-      totalCell.textContent = formatMoney(lineTotal(it.quantity, it.unitPrice), inv.lang, inv.currency);
+      try {
+        totalCell.textContent = formatMoney(lineTotal(it.quantity, it.unitPrice), inv.lang, inv.currency);
+      } catch { totalCell.textContent = '—'; }
     };
+    updateTotal();
     const desc = h('input', { class: 'input', type: 'text', value: it.description, placeholder: 'Popis položky' }) as HTMLInputElement;
     desc.addEventListener('input', () => {
       it.description = desc.value;
       schedulePreview();
     });
-    const qty = h('input', { class: 'input', type: 'number', step: '0.01', value: String(it.quantity) }) as HTMLInputElement;
+    const qty = h('input', { class: 'input', type: 'number', step: '1', required: true,
+      'aria-label': 'Množství', value: invalidQuantities.get(it) ?? String(it.quantity) }) as HTMLInputElement;
+    const validateQuantity = () => {
+      const value = Number(qty.value);
+      const valid = qty.value !== '' && Number.isSafeInteger(value);
+      qty.setCustomValidity(valid ? '' : 'Množství musí být celé číslo.');
+      qty.setAttribute('aria-invalid', String(!valid));
+      if (valid) { it.quantity = value; invalidQuantities.delete(it); }
+      else invalidQuantities.set(it, qty.value);
+    };
+    validateQuantity();
     qty.addEventListener('input', () => {
-      it.quantity = parseFloat(qty.value) || 0;
+      validateQuantity();
       updateTotal();
       schedulePreview();
     });
@@ -652,6 +678,7 @@ export function mountApp(root: HTMLElement): void {
       class: 'btn btn-icon',
       title: 'Odebrat řádek',
       onClick: () => {
+        invalidQuantities.delete(it);
         inv.items.splice(idx, 1);
         if (inv.items.length === 0) inv.items.push(emptyItem());
         rerender();
@@ -803,7 +830,26 @@ export function mountApp(root: HTMLElement): void {
         backupInfo.style.display = 'block';
         try {
           const data = JSON.parse(await f.text());
-          const r = await applyBackup(data);
+          if (previewTimer) window.clearTimeout(previewTimer);
+          const missingBeforeImport = {
+            supplier: loadSupplier() === null,
+            draft: loadDraft() === null,
+            counter: loadCounter() === null,
+          };
+          let r;
+          try {
+            r = await applyBackup(data);
+          } finally {
+            // Also sync after a partial storage failure, before another edit can overwrite imported data.
+            // Existing singletons were skipped by the merge; keep their in-memory edits too.
+            if (missingBeforeImport.supplier) state.supplier = loadSupplier() ?? state.supplier;
+            if (missingBeforeImport.draft) {
+              const restored = loadDraft();
+              if (restored) { state.invoice = restored; resetInputDrafts(); }
+            }
+            if (missingBeforeImport.counter) state.counter = loadCounter();
+          }
+          state.profileSel = { supplier: '', customer: '', preset: '' };
           // switchTab below rebuilds this form, so surface the summary via alert.
           alert(`Záloha naimportována:\n+${r.suppliers} dodavatelů\n+${r.customers} odběratelů\n+${r.presets} šablon faktur\n+${r.templates} .typ šablon`);
           switchTab('templates');

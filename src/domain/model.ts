@@ -34,7 +34,7 @@ export interface NamedRecord<T> {
 
 export interface InvoiceItem {
   description: string;
-  quantity: number;
+  quantity: number; // integer
   unit?: string;
   unitPrice: number; // in the invoice currency
 }

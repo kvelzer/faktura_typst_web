@@ -41,8 +41,8 @@ function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) 
       new Promise<T>((resolve, reject) => {
         const t = db.transaction(store, mode);
         const req = fn(t.objectStore(store));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
+        t.oncomplete = () => { db.close(); resolve(req.result); };
+        t.onabort = () => { db.close(); reject(t.error ?? new Error('Operace s úložištěm šablon selhala.')); };
       }),
   );
 }
@@ -109,7 +109,7 @@ async function existingTemplateIds(): Promise<Set<string>> {
 
 /**
  * Insert templates whose id isn't already present. Returns count added.
- * No re-validation — records come from our own export.
+ * The backup importer validates all records and sources before calling this.
  */
 export async function importTemplatesMerge(recs: StoredTemplate[]): Promise<number> {
   const have = await existingTemplateIds();

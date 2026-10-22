@@ -1,5 +1,25 @@
 import type { Currency, Lang } from './model';
 
+const decimalMoney = new Intl.NumberFormat('en-US', {
+  useGrouping: false,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Round the unit price once, then calculate and sum using integer minor units. */
+export function moneyInCents(value: number): number {
+  const cents = Number(decimalMoney.format(value).replace('.', ''));
+  if (!Number.isFinite(value) || !Number.isSafeInteger(cents)) throw new Error('Částka je mimo podporovaný rozsah.');
+  return cents;
+}
+
+export function lineTotalCents(quantity: number, unitPrice: number): number {
+  if (!Number.isSafeInteger(quantity)) throw new Error('Množství musí být celé číslo.');
+  const cents = quantity * moneyInCents(unitPrice);
+  if (!Number.isSafeInteger(cents)) throw new Error('Částka je mimo podporovaný rozsah.');
+  return cents;
+}
+
 /** Locale used for number/date formatting based on invoice language. */
 export function localeFor(lang: Lang): string {
   return lang === 'cs' ? 'cs-CZ' : 'en-US';

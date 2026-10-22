@@ -2,7 +2,7 @@ import { $typst } from '@myriaddreamin/typst.ts';
 import { loadFonts } from '@myriaddreamin/typst.ts';
 
 import type { Invoice, Supplier } from '../domain/model';
-import { formatMoney, formatQuantity, formatDate } from '../domain/money';
+import { formatMoney, formatQuantity, formatDate, lineTotalCents } from '../domain/money';
 import { typstString, typstStringOrNone } from './escape';
 
 // Built-in template source, bundled at build time.
@@ -51,12 +51,14 @@ export function initTypst(): Promise<void> {
 
 /** Compute line total for one item. */
 export function lineTotal(quantity: number, unitPrice: number): number {
-  return quantity * unitPrice;
+  return lineTotalCents(quantity, unitPrice) / 100;
 }
 
 /** Compute the invoice grand total. */
 export function invoiceTotal(invoice: Invoice): number {
-  return invoice.items.reduce((sum, it) => sum + lineTotal(it.quantity, it.unitPrice), 0);
+  const cents = invoice.items.reduce((sum, it) => sum + lineTotalCents(it.quantity, it.unitPrice), 0);
+  if (!Number.isSafeInteger(cents)) throw new Error('Celková částka je mimo podporovaný rozsah.');
+  return cents / 100;
 }
 
 /**

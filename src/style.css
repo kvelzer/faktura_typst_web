@@ -114,6 +114,7 @@ textarea.input { resize: vertical; }
 .preview-box svg { max-width: 100%; height: auto; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.12); display: block; margin: 0 auto; }
 
 .error { color: var(--danger); background: #fef3f2; border: 1px solid #fecdca; padding: 8px 10px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; }
+.storage-error { margin: 16px 16px 0; }
 .info { color: var(--ok); background: #ecfdf3; border: 1px solid #abefc6; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
 
 .template-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
