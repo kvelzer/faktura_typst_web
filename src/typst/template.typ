@@ -7,7 +7,7 @@
     ico: "IČO", dic: "DIČ", notvat: "Neplátce DPH",
     vs: "Variabilní symbol", pay: "Způsob platby",
     issued: "Datum vystavení", due: "Datum splatnosti",
-    acc: "Bankovní účet", iban: "IBAN", swift: "SWIFT/BIC",
+    acc: "Číslo účtu", iban: "IBAN", swift: "SWIFT/BIC",
     unitprice: "Cena za MJ", amount: "Celkem", note: "Poznámka",
   ),
   en: (
@@ -81,7 +81,7 @@
       #kv(L.ico, supplier.ico)
       #dph-radek(supplier)
       #if meta.at("vs", default: "") != "" [ #kv(L.vs, meta.vs) ]
-      #kv(L.pay, text(weight: "bold")[#meta.payment])
+      #kv(L.pay, meta.payment)
       #if meta.at("account", default: "") != "" [ #kv(L.acc, meta.account) ]
       #if meta.at("iban", default: "") != "" [ #kv(L.iban, meta.iban) ]
       #if meta.at("swift", default: "") != "" [ #kv(L.swift, meta.swift) ]

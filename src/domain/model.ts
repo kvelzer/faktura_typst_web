@@ -46,6 +46,7 @@ export interface Invoice {
   issueDate: string; // ISO; formatted at render time
   dueDate: string;
   paymentMethod: PaymentMethod;
+  bankAccount?: string; // undefined uses supplier default; empty hides the account
   variableSymbol?: string;
   items: InvoiceItem[];
   note?: string;

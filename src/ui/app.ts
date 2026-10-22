@@ -250,6 +250,10 @@ export function mountApp(root: HTMLElement): void {
   }
 
   async function renderPreview(): Promise<void> {
+    if (formPane.querySelector('input[data-invoice-date]:invalid')) {
+      previewStatus.textContent = 'Zkontrolujte datum ve formátu DD/MM/YYYY.';
+      return;
+    }
     previewStatus.textContent = 'Překresluji…';
     try {
       if (!activeSourceCache) activeSourceCache = await getActiveSource();
@@ -269,6 +273,11 @@ export function mountApp(root: HTMLElement): void {
   }
 
   async function onDownloadPdf(): Promise<void> {
+    const invalidInput = formPane.querySelector<HTMLInputElement>('input[data-invoice-date]:invalid');
+    if (invalidInput) {
+      invalidInput.reportValidity();
+      return;
+    }
     dlBtn.setAttribute('disabled', '');
     const prev = dlBtn.textContent;
     dlBtn.textContent = 'Generuji…';
@@ -327,6 +336,39 @@ export function mountApp(root: HTMLElement): void {
       schedulePreview();
     });
     return ta;
+  }
+
+  /** Keep ISO dates in storage/PDF data while showing a fixed day-first format. */
+  function bindDate(get: () => string, set: (v: string) => void): HTMLInputElement {
+    const [year, month, day] = get().split('-');
+    const input = h('input', {
+      class: 'input',
+      type: 'text',
+      value: `${day}/${month}/${year}`,
+      placeholder: 'DD/MM/YYYY',
+      'data-invoice-date': true,
+      required: true,
+    });
+    input.addEventListener('input', () => {
+      const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(input.value);
+      let iso = '';
+      if (match) {
+        const [, d, m, y] = match;
+        const candidate = `${y}-${m}-${d}`;
+        const date = new Date(`${candidate}T00:00:00Z`);
+        if (Number(y) > 0 && !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === candidate) {
+          iso = candidate;
+        }
+      }
+      input.setCustomValidity(iso ? '' : 'Zadejte platné datum ve formátu DD/MM/YYYY.');
+      input.setAttribute('aria-invalid', String(!iso));
+      if (iso) set(iso);
+      schedulePreview();
+    });
+    input.addEventListener('blur', () => {
+      if (!input.validity.valid) input.reportValidity();
+    });
+    return input;
   }
 
   // ---- Supplier (settings) ----
@@ -428,6 +470,8 @@ export function mountApp(root: HTMLElement): void {
   // ---- Invoice form ----
   function renderInvoiceForm(): HTMLElement {
     const inv = state.invoice;
+    const accountValue = () => inv.bankAccount ?? (inv.currency === 'CZK' ? state.supplier.bankAccount ?? '' : '');
+    const accountInput = bindInput(accountValue, (v) => (inv.bankAccount = v), { placeholder: '123456789/0100' });
 
     const langToggle = segmented(
       [
@@ -449,6 +493,7 @@ export function mountApp(root: HTMLElement): void {
       inv.currency,
       (v) => {
         inv.currency = v as Currency;
+        accountInput.value = accountValue();
         renderItems();
         schedulePreview();
       },
@@ -561,10 +606,11 @@ export function mountApp(root: HTMLElement): void {
         field('Variabilní symbol', bindInput(() => inv.variableSymbol ?? '', (v) => (inv.variableSymbol = v))),
       ]),
       h('div', { class: 'row2' }, [
-        field('Datum vystavení', bindInput(() => inv.issueDate, (v) => (inv.issueDate = v), { type: 'date' })),
-        field('Datum splatnosti', bindInput(() => inv.dueDate, (v) => (inv.dueDate = v), { type: 'date' })),
+        field('Datum vystavení', bindDate(() => inv.issueDate, (v) => (inv.issueDate = v)), 'DD/MM/YYYY'),
+        field('Datum splatnosti', bindDate(() => inv.dueDate, (v) => (inv.dueDate = v)), 'DD/MM/YYYY'),
       ]),
-      field('Forma úhrady', payInput),
+      field('Způsob platby', payInput),
+      field('Číslo účtu (nepovinné)', accountInput),
 
       h('h2', {}, ['Položky']),
       itemsBox,

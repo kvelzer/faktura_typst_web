@@ -90,7 +90,7 @@ export function buildMainContent(
     `dic: ${typstStringOrNone(customer.dic)}`,
   ];
 
-  // Payment details — bank account for CZK, IBAN/SWIFT for EUR; all optional.
+  // An invoice can override (or explicitly hide) the supplier's default account.
   const metaFields: string[] = [
     `number: ${typstString(invoice.number)}`,
     `issueDate: ${typstString(formatDate(invoice.issueDate, lang))}`,
@@ -98,8 +98,9 @@ export function buildMainContent(
     `payment: ${typstString(invoice.paymentMethod)}`,
     `vs: ${typstString(invoice.variableSymbol ?? '')}`,
   ];
-  if (currency === 'CZK' && supplier.bankAccount) {
-    metaFields.push(`account: ${typstString(supplier.bankAccount)}`);
+  const bankAccount = invoice.bankAccount ?? (currency === 'CZK' ? supplier.bankAccount : '');
+  if (bankAccount?.trim()) {
+    metaFields.push(`account: ${typstString(bankAccount.trim())}`);
   }
   if (supplier.iban) metaFields.push(`iban: ${typstString(supplier.iban)}`);
   if (supplier.swift) metaFields.push(`swift: ${typstString(supplier.swift)}`);
